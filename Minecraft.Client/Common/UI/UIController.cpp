@@ -1013,6 +1013,8 @@ void UIController::handleKeyPress(unsigned int iPad, unsigned int key)
 			case ACTION_MENU_LEFT_SCROLL: kbDown = KMInput.IsKeyDown('Q'); kbPressed = KMInput.IsKeyPressed('Q'); kbReleased = KMInput.IsKeyReleased('Q'); break;
 			case ACTION_MENU_RIGHT_SCROLL: kbDown = KMInput.IsKeyDown('E'); kbPressed = KMInput.IsKeyPressed('E'); kbReleased = KMInput.IsKeyReleased('E'); break;
 			case ACTION_MENU_QUICK_MOVE: kbDown = KMInput.IsKeyDown(VK_SHIFT); kbPressed = KMInput.IsKeyPressed(VK_SHIFT); kbReleased = KMInput.IsKeyReleased(VK_SHIFT); break;
+			case ACTION_MENU_X: kbDown = KMInput.IsKeyDown('X'); kbPressed = KMInput.IsKeyPressed('X'); kbReleased = KMInput.IsKeyReleased('X'); break;
+			case ACTION_MENU_Y: kbDown = KMInput.IsKeyDown('Y'); kbPressed = KMInput.IsKeyPressed('Y'); kbReleased = KMInput.IsKeyReleased('Y'); break;
 		}
 		pressed = pressed || kbPressed;
 		released = released || kbReleased;

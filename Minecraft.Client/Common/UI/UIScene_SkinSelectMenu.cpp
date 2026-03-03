@@ -7,6 +7,8 @@
 #elif defined __PSVITA__
 #include <message_dialog.h>
 #endif
+#include <fstream>
+#include <commdlg.h> // Necesario para GetOpenFileNameW
 
 #define SKIN_SELECT_PACK_DEFAULT 0
 #define SKIN_SELECT_PACK_FAVORITES 1
@@ -53,6 +55,7 @@ UIScene_SkinSelectMenu::UIScene_SkinSelectMenu(int iPad, void *initData, UILayer
 	m_bSlidingSkins = false;
 	m_bAnimatingMove = false;
 	m_bSkinIndexChanged = false;
+	m_bUsingCustomSkin = (!GET_IS_DLC_SKIN_FROM_BITMASK(m_originalSkinId) && GET_UGC_SKIN_ID_FROM_BITMASK(m_originalSkinId) != 0);
 
 	m_currentNavigation = eSkinNavigation_Skin;
 
@@ -225,6 +228,14 @@ void UIScene_SkinSelectMenu::handleInput(int iPad, int key, bool repeat, bool pr
 			InputActionOK(iPad);
 		}
 		break;
+	case ACTION_MENU_X:
+		if (pressed && !repeat)
+		{
+			LoadExternalSkin();
+			handled = true;
+			return;
+		}
+		break;
 	case ACTION_MENU_UP:
 	case ACTION_MENU_DOWN:
 		if(pressed)
@@ -265,6 +276,7 @@ void UIScene_SkinSelectMenu::handleInput(int iPad, int key, bool repeat, bool pr
 					m_skinIndex = getPreviousSkinIndex(m_skinIndex);
 					//handleSkinIndexChanged();
 
+					m_bUsingCustomSkin = false;
 					m_bSlidingSkins = true;
 					m_bAnimatingMove = true;
 
@@ -300,6 +312,7 @@ void UIScene_SkinSelectMenu::handleInput(int iPad, int key, bool repeat, bool pr
 					m_skinIndex = getNextSkinIndex(m_skinIndex);
 					//handleSkinIndexChanged();
 
+					m_bUsingCustomSkin = false;
 					m_bSlidingSkins = true;
 					m_bAnimatingMove = true;
 
@@ -401,6 +414,15 @@ void UIScene_SkinSelectMenu::handleInput(int iPad, int key, bool repeat, bool pr
 void UIScene_SkinSelectMenu::InputActionOK(unsigned int iPad)
 {
 	ui.AnimateKeyPress(iPad, ACTION_MENU_OK, false, true, false);
+
+	if (m_bUsingCustomSkin)
+	{
+		ui.PlayUISFX(eSFX_Press);
+		m_currentSkinPath = app.GetPlayerSkinName(iPad);
+		m_originalSkinId = app.GetPlayerSkinId(iPad);
+		setCharacterSelected(true);
+		return;
+	}
 
 	// if the profile data has been changed, then force a profile write
 	// It seems we're allowed to break the 5 minute rule if it's the result of a user action
@@ -646,7 +668,19 @@ void UIScene_SkinSelectMenu::handleSkinIndexChanged()
 
 	m_controlSkinNamePlate.setVisible( false );
 
-	if( m_currentPack != NULL )
+	if (m_bUsingCustomSkin)
+	{
+		m_selectedSkinPath = m_currentSkinPath;
+		m_selectedCapePath = L"";
+		m_vAdditionalSkinBoxes = NULL;
+		skinName = L"Custom Skin";
+		skinOrigin = L"External PNG";
+		setCharacterSelected(true);
+		setCharacterLocked(false);
+		m_characters[eCharacter_Current].setVisible(true);
+		m_controlSkinNamePlate.setVisible(true);
+	}
+	else if( m_currentPack != NULL )
 	{
 		skinFile = m_currentPack->getSkinFile(m_skinIndex);
 		m_selectedSkinPath = skinFile->getPath();
@@ -751,6 +785,16 @@ void UIScene_SkinSelectMenu::handleSkinIndexChanged()
 
 	m_labelSkinName.setLabel(skinName);
 	m_labelSkinOrigin.setLabel(skinOrigin);
+
+	if (m_packIndex == SKIN_SELECT_PACK_DEFAULT && m_bUsingCustomSkin)
+	{
+		m_labelSkinOrigin.setLabel(L"X: Custom Skin"); // Muestra la ayuda visual
+	}
+
+	if (m_selectedSkinPath.compare(m_currentSkinPath) == 0)
+	{
+		setCharacterSelected(true); // Activa el icono de seleccionado
+	}
 
 
 	if(m_vAdditionalSkinBoxes && m_vAdditionalSkinBoxes->size()!=0)
@@ -1735,3 +1779,91 @@ int UIScene_SkinSelectMenu::PSNSignInReturned(void* pParam, bool bContinue, int 
 	return 0;
 }
 #endif // __PSVITA__
+
+void UIScene_SkinSelectMenu::LoadExternalSkin()
+{
+    OPENFILENAMEW ofn;
+    wchar_t szFile[MAX_PATH];
+
+    ZeroMemory(&ofn, sizeof(ofn));
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = NULL;
+    ofn.lpstrFile = szFile;
+    ofn.lpstrFile[0] = L'\0';
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrFilter = L"PNG Files\0*.png\0All Files\0*.*\0";
+    ofn.nFilterIndex = 1;
+
+    // IMPORTANTE: OFN_NOCHANGEDIR evita que el Explorador cambie la carpeta de trabajo.
+    // Si la carpeta cambia, el juego NO podrá guardar mundos (Assertion failed en STO_SaveGame.cpp).
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
+
+    if (GetOpenFileNameW(&ofn) == TRUE)
+    {
+        std::ifstream file(ofn.lpstrFile, std::ios::binary | std::ios::ate);
+        if (file.is_open())
+        {
+            std::streamsize size = file.tellg();
+            if (size <= 0 || size > 2 * 1024 * 1024) { // Limite 2MB
+                file.close();
+                ui.PlayUISFX(eSFX_CraftFail);
+                return;
+            }
+            file.seekg(0, std::ios::beg);
+
+            // MEMORIA: El motor AddMemoryTextureFile NO copia los datos, usa el puntero directamente.
+            // Si usas un vector o buffer local, la skin se corromperá al salir de la función.
+            PBYTE persistentBuffer = new (std::nothrow) BYTE[(size_t)size];
+            if (!persistentBuffer || !file.read((char*)persistentBuffer, size)) {
+                if(persistentBuffer) delete[] persistentBuffer;
+                file.close();
+                return;
+            }
+
+            // Validar Cabecera PNG y Dimensiones (64x32 o 64x64)
+            if (size > 24 && (unsigned char)persistentBuffer[0] == 0x89 && persistentBuffer[1] == 'P') 
+            {
+                unsigned int w = (unsigned char)persistentBuffer[16] << 24 | (unsigned char)persistentBuffer[17] << 16 | (unsigned char)persistentBuffer[18] << 8 | (unsigned char)persistentBuffer[19];
+                unsigned int h = (unsigned char)persistentBuffer[20] << 24 | (unsigned char)persistentBuffer[21] << 16 | (unsigned char)persistentBuffer[22] << 8 | (unsigned char)persistentBuffer[23];
+
+                if ((w == 64 && h == 32) || (w == 64 && h == 64))
+                {
+                    // CACHE BUSTING: Si usas el mismo nombre "custom.png", el cache del motor no se refresca.
+                    // Usamos un contador para generar IDs únicos (ugcskin00000101.png, 102, etc).
+                    static int s_ugcSkinLoadCount = 0;
+                    s_ugcSkinLoadCount++;
+                    
+                    wchar_t textureNameBuf[256];
+                    // Formato ugcskinXXXXXXXX.png es obligatorio para que getSkinIdFromPath genere un ID válido.
+                    // Ajustamos el ID para que los bits bajos (0-4) sean 0, respetando el bitmask de UGC.
+                    swprintf(textureNameBuf, 256, L"ugcskin%08X.png", 0x100 + (s_ugcSkinLoadCount << 5));
+                    wstring textureName = textureNameBuf;
+                    
+                    // Limpieza opcional del buffer anterior
+                    if (m_bUsingCustomSkin && !m_selectedSkinPath.empty()) {
+                        app.RemoveMemoryTextureFile(m_selectedSkinPath);
+                    }
+                    
+                    // 1. Cargar datos en el sistema de archivos en memoria
+                    app.AddMemoryTextureFile(textureName, persistentBuffer, (DWORD)size);
+                    
+                    // 2. Aplicar la skin al jugador local
+                    app.SetPlayerSkin(m_iPad, textureName);
+
+                    // 3. Forzar refresco de la UI
+                    m_bUsingCustomSkin = true;
+                    m_selectedSkinPath = textureName;
+                    m_currentSkinPath = textureName;
+                    m_selectedCapePath = L""; 
+                    handleSkinIndexChanged();
+
+                    file.close();
+                    return;
+                }
+            }
+            delete[] persistentBuffer; // Borrar si falló la validación
+            ui.PlayUISFX(eSFX_CraftFail);
+            file.close();
+        }
+    }
+}
