@@ -20,7 +20,7 @@ public:
 	static const int KEY_RIGHT = 'D';
 	static const int KEY_JUMP = VK_SPACE;
 	static const int KEY_SNEAK = VK_LSHIFT;
-	static const int KEY_SPRINT = VK_LCONTROL;
+	static const int KEY_SPRINT = VK_CONTROL;
 	static const int KEY_INVENTORY = 'E';
 	static const int KEY_DROP = 'Q';
 	static const int KEY_CRAFTING = 'C';
@@ -59,7 +59,8 @@ public:
 
 	int GetMouseWheel();
 	int PeekMouseWheel() const { return m_mouseWheelAccum; }
-	void ConsumeMouseWheel() { m_mouseWheelAccum = 0; }
+	void ConsumeMouseWheel() { if (m_mouseWheelAccum != 0) m_mouseWheelConsumed = true; m_mouseWheelAccum = 0; }
+	bool WasMouseWheelConsumed() const { return m_mouseWheelConsumed; }
 
 	// Per-frame delta consumption for low-latency mouse look.
 	// Reads and clears the raw accumulators (not the per-tick snapshot).
@@ -114,6 +115,7 @@ private:
 	int m_mouseDeltaAccumY;
 
 	int m_mouseWheelAccum;
+	bool m_mouseWheelConsumed;
 
 	bool m_mouseGrabbed;
 
