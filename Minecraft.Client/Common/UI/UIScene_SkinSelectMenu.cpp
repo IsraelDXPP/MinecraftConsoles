@@ -788,12 +788,12 @@ void UIScene_SkinSelectMenu::handleSkinIndexChanged()
 
 	if (m_packIndex == SKIN_SELECT_PACK_DEFAULT && m_bUsingCustomSkin)
 	{
-		m_labelSkinOrigin.setLabel(L"X: Custom Skin"); // Show visual help
+		m_labelSkinOrigin.setLabel(L"X: Custom Skin"); // Display visual aid for custom skin
 	}
 
 	if (m_selectedSkinPath.compare(m_currentSkinPath) == 0)
 	{
-		setCharacterSelected(true); // Activates the selected icon automatically
+		setCharacterSelected(true); // Enable selection checkmark
 	}
 
 
@@ -1794,8 +1794,8 @@ void UIScene_SkinSelectMenu::LoadExternalSkin()
     ofn.lpstrFilter = L"PNG Files\0*.png\0All Files\0*.*\0";
     ofn.nFilterIndex = 1;
 
-    // IMPORTANTE: OFN_NOCHANGEDIR evita que el Explorador cambie la carpeta de trabajo.
-    // Si la carpeta cambia, el juego NO podrá guardar mundos (Assertion failed en STO_SaveGame.cpp).
+    // IMPORTANT: OFN_NOCHANGEDIR prevents the File Explorer from changing the current working directory.
+    // If the directory changes, the game will FAIL TO SAVE worlds (Assertion failed in STO_SaveGame.cpp).
     ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
 
     if (GetOpenFileNameW(&ofn) == TRUE)
@@ -1811,8 +1811,8 @@ void UIScene_SkinSelectMenu::LoadExternalSkin()
             }
             file.seekg(0, std::ios::beg);
 
-            // MEMORIA: El motor AddMemoryTextureFile NO copia los datos, usa el puntero directamente.
-            // Si usas un vector o buffer local, la skin se corromperá al salir de la función.
+            // MEMORY MANAGEMENT: AddMemoryTextureFile does NOT copy the buffer; it uses the pointer directly.
+            // If you use a local vector or stack buffer, the skin will corrupt/crash as soon as the function returns.
             PBYTE persistentBuffer = new (std::nothrow) BYTE[(size_t)size];
             if (!persistentBuffer || !file.read((char*)persistentBuffer, size)) {
                 if(persistentBuffer) delete[] persistentBuffer;
@@ -1820,7 +1820,7 @@ void UIScene_SkinSelectMenu::LoadExternalSkin()
                 return;
             }
 
-            // Validar Cabecera PNG y Dimensiones (64x32 o 64x64)
+            // Validate PNG Header and Dimensions (64x32 or 64x64)
             if (size > 24 && (unsigned char)persistentBuffer[0] == 0x89 && persistentBuffer[1] == 'P') 
             {
                 unsigned int w = (unsigned char)persistentBuffer[16] << 24 | (unsigned char)persistentBuffer[17] << 16 | (unsigned char)persistentBuffer[18] << 8 | (unsigned char)persistentBuffer[19];
@@ -1828,29 +1828,29 @@ void UIScene_SkinSelectMenu::LoadExternalSkin()
 
                 if ((w == 64 && h == 32) || (w == 64 && h == 64))
                 {
-                    // CACHE BUSTING: Si usas el mismo nombre "custom.png", el cache del motor no se refresca.
-                    // Usamos un contador para generar IDs únicos (ugcskin00000101.png, 102, etc).
+                    // CACHE BUSTING: If we use the same filename (e.g., "custom.png"), the engine's texture cache won't refresh.
+                    // We use a counter to generate unique texture names (ugcskin00000100.png, 120, etc).
                     static int s_ugcSkinLoadCount = 0;
                     s_ugcSkinLoadCount++;
                     
                     wchar_t textureNameBuf[256];
-                    // Formato ugcskinXXXXXXXX.png es obligatorio para que getSkinIdFromPath genere un ID válido.
-                    // Ajustamos el ID para que los bits bajos (0-4) sean 0, respetando el bitmask de UGC.
+                    // Standard ugcskinXXXXXXXX.png naming is required for correct internal ID generation via getSkinIdFromPath.
+                    // We shift the counter by 5 bits to align with the UGC bitmask (lower 5 bits are reserved for default skins).
                     swprintf(textureNameBuf, 256, L"ugcskin%08X.png", 0x100 + (s_ugcSkinLoadCount << 5));
                     wstring textureName = textureNameBuf;
                     
-                    // Limpieza opcional del buffer anterior
+                    // Optional: Remove previous custom texture from memory to avoid leaks
                     if (m_bUsingCustomSkin && !m_selectedSkinPath.empty()) {
                         app.RemoveMemoryTextureFile(m_selectedSkinPath);
                     }
                     
-                    // 1. Cargar datos en el sistema de archivos en memoria
+                    // 1. Add texture data to the in-memory filesystem
                     app.AddMemoryTextureFile(textureName, persistentBuffer, (DWORD)size);
                     
-                    // 2. Aplicar la skin al jugador local
+                    // 2. Apply the skin path to the local player character
                     app.SetPlayerSkin(m_iPad, textureName);
 
-                    // 3. Forzar refresco de la UI
+                    // 3. Force UI refresh and update internal state
                     m_bUsingCustomSkin = true;
                     m_selectedSkinPath = textureName;
                     m_currentSkinPath = textureName;
@@ -1861,7 +1861,7 @@ void UIScene_SkinSelectMenu::LoadExternalSkin()
                     return;
                 }
             }
-            delete[] persistentBuffer; // Borrar si falló la validación
+            delete[] persistentBuffer; // Cleanup if validation or loading failed
             ui.PlayUISFX(eSFX_CraftFail);
             file.close();
         }

@@ -136,12 +136,12 @@ protected:
 	// TODO: This should be pure virtual in this class
 	virtual wstring getMoviePath();
 
-	bool m_bUsingCustomSkin;     // Flag para saber si hay una skin externa activa
+	bool m_bUsingCustomSkin;     // Flag indicating if a custom external skin is active
 
 public:
 	// INPUT
 	virtual void handleInput(int iPad, int key, bool repeat, bool pressed, bool released, bool &handled);
-	void LoadExternalSkin(); // Función principal del explorador
+	void LoadExternalSkin(); // Main function for selecting and loading an external skin via file picker
 
 	virtual void customDraw(IggyCustomDrawCallbackRegion *region);
 
