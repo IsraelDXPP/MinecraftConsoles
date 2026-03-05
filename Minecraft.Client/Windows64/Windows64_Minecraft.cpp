@@ -88,8 +88,7 @@ BOOL g_bWidescreen = TRUE;
 int g_iScreenWidth = 1920;
 int g_iScreenHeight = 1080;
 
-UINT g_ScreenWidth = 1920;
-UINT g_ScreenHeight = 1080;
+float g_iAspectRatio = static_cast<float>(g_iScreenWidth) / g_iScreenHeight;
 
 char g_Win64Username[17] = { 0 };
 wchar_t g_Win64UsernameW[17] = { 0 };
@@ -97,6 +96,14 @@ wchar_t g_Win64UsernameW[17] = { 0 };
 // Fullscreen toggle state
 static bool g_isFullscreen = false;
 static WINDOWPLACEMENT g_wpPrev = { sizeof(g_wpPrev) };
+
+//--------------------------------------------------------------------------------------
+// Update the Aspect Ratio to support Any Aspect Ratio
+//--------------------------------------------------------------------------------------
+void UpdateAspectRatio(int width, int height)
+{
+	g_iAspectRatio = static_cast<float>(width) / height;
+}
 
 struct Win64LaunchOptions
 {
@@ -116,6 +123,50 @@ static void CopyWideArgToAnsi(LPCWSTR source, char* dest, size_t destSize)
 	WideCharToMultiByte(CP_ACP, 0, source, -1, dest, (int)destSize, NULL, NULL);
 	dest[destSize - 1] = 0;
 }
+
+// ---------- Persistent options (options.txt next to exe) ----------
+static void GetOptionsFilePath(char *out, size_t outSize)
+{
+	GetModuleFileNameA(NULL, out, (DWORD)outSize);
+	char *p = strrchr(out, '\\');
+	if (p) *(p + 1) = '\0';
+	strncat_s(out, outSize, "options.txt", _TRUNCATE);
+}
+
+static void SaveFullscreenOption(bool fullscreen)
+{
+	char path[MAX_PATH];
+	GetOptionsFilePath(path, sizeof(path));
+	FILE *f = nullptr;
+	if (fopen_s(&f, path, "w") == 0 && f)
+	{
+		fprintf(f, "fullscreen=%d\n", fullscreen ? 1 : 0);
+		fclose(f);
+	}
+}
+
+static bool LoadFullscreenOption()
+{
+	char path[MAX_PATH];
+	GetOptionsFilePath(path, sizeof(path));
+	FILE *f = nullptr;
+	if (fopen_s(&f, path, "r") == 0 && f)
+	{
+		char line[256];
+		while (fgets(line, sizeof(line), f))
+		{
+			int val = 0;
+			if (sscanf_s(line, "fullscreen=%d", &val) == 1)
+			{
+				fclose(f);
+				return val != 0;
+			}
+		}
+		fclose(f);
+	}
+	return false;
+}
+// ------------------------------------------------------------------
 
 static void ApplyScreenMode(int screenMode)
 {
@@ -468,6 +519,7 @@ ID3D11Texture2D*		g_pDepthStencilBuffer = NULL;
 //  WM_COMMAND	- process the application menu
 //  WM_PAINT	- Paint the main window
 //  WM_DESTROY	- post a quit message and return
+//  WM_SIZE		- handle resizing logic to support Any Aspect Ratio
 //
 //
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
@@ -585,6 +637,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			}
 		}
 		break;
+	case WM_SIZE:
+		{
+			UpdateAspectRatio(LOWORD(lParam), HIWORD(lParam));
+		}
+		break;
 	default:
 		return DefWindowProc(hWnd, message, wParam, lParam);
 	}
@@ -651,7 +708,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 		return FALSE;
 	}
 
-	ShowWindow(g_hWnd, nCmdShow);
+	ShowWindow(g_hWnd, (nCmdShow != SW_HIDE) ? SW_SHOWMAXIMIZED : nCmdShow);
 	UpdateWindow(g_hWnd);
 
 	return TRUE;
@@ -719,7 +776,7 @@ HRESULT InitDevice()
 //app.DebugPrintf("width: %d, height: %d\n", width, height);
 	width = g_iScreenWidth;
 	height = g_iScreenHeight;
-app.DebugPrintf("width: %d, height: %d\n", width, height);
+//app.DebugPrintf("width: %d, height: %d\n", width, height);
 
 	UINT createDeviceFlags = 0;
 #ifdef _DEBUG
@@ -860,6 +917,7 @@ void ToggleFullscreen()
 			SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
 	}
 	g_isFullscreen = !g_isFullscreen;
+	SaveFullscreenOption(g_isFullscreen);
 
 	if (g_KBMInput.IsWindowFocused())
 		g_KBMInput.SetWindowFocused(true);
@@ -1178,6 +1236,12 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 	{
 		CleanupDevice();
 		return 0;
+	}
+
+	// Restore fullscreen state from previous session
+	if (LoadFullscreenOption() && !g_isFullscreen)
+	{
+		ToggleFullscreen();
 	}
 
 	if (launchOptions.serverMode)
@@ -1505,19 +1569,6 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 		}
 
 #ifdef _DEBUG_MENUS_ENABLED
-		// F4 Open debug overlay
-        if (g_KBMInput.IsKeyPressed(VK_F4))
-        {
-            if (Minecraft *pMinecraft = Minecraft::GetInstance())
-            {
-                if (pMinecraft->options &&
-                    app.GetGameStarted() && !ui.GetMenuDisplayed(0) && pMinecraft->screen == NULL)
-                {
-                    ui.NavigateToScene(0, eUIScene_DebugOverlay, NULL, eUILayer_Debug);
-                }
-            }
-        }
-
         // F6 Open debug console
         if (g_KBMInput.IsKeyPressed(VK_F6))
         {
