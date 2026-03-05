@@ -9296,6 +9296,13 @@ void CMinecraftApp::SetAnimOverrideBitmask(DWORD dwSkinID,unsigned int uiAnimOve
 
 DWORD CMinecraftApp::getSkinIdFromPath(const wstring &skin)
 {
+	if (skin.find(L"custom_skin_") != wstring::npos)
+	{
+		// If the texture name is our new custom_skin_ format, return a fixed UGC ID (0x100).
+		// This prevents the engine from parsing non-hex characters and defaulting to 0.
+		return MAKE_SKIN_BITMASK(false, 0x100);
+	}
+
 	bool dlcSkin = false; 
 	unsigned int skinId = 0;
 
@@ -9322,62 +9329,71 @@ DWORD CMinecraftApp::getSkinIdFromPath(const wstring &skin)
 
 wstring CMinecraftApp::getSkinPathFromId(DWORD skinId)
 {
-	// 4J Stu - This function maps the encoded DWORD we store in the player profile
-	// to a filename that is stored as a memory texture and shared between systems in game
+	// Maps the encoded DWORD stored in the player profile to a texture filename
+	// that the engine can look up in the in-memory texture filesystem.
 	wchar_t chars[256];
-	if( GET_IS_DLC_SKIN_FROM_BITMASK(skinId) )
+	if (GET_IS_DLC_SKIN_FROM_BITMASK(skinId))
 	{
-		// 4J Stu - DLC skins are numbered using decimal rather than hex to make it easier to number manually
+		// DLC skins use decimal numbering to make manual numbering easier.
 		swprintf(chars, 256, L"dlcskin%08d.png", GET_DLC_SKIN_ID_FROM_BITMASK(skinId));
-
 	}
 	else
 	{
-		DWORD ugcSkinIndex = GET_UGC_SKIN_ID_FROM_BITMASK(skinId);
+		DWORD ugcSkinIndex     = GET_UGC_SKIN_ID_FROM_BITMASK(skinId);
 		DWORD defaultSkinIndex = GET_DEFAULT_SKIN_ID_FROM_BITMASK(skinId);
-		if( ugcSkinIndex == 0 )
+		if (ugcSkinIndex == 0)
 		{
-			swprintf(chars, 256, L"defskin%08X.png",defaultSkinIndex);
+			swprintf(chars, 256, L"defskin%08X.png", defaultSkinIndex);
 		}
 		else
 		{
-			swprintf(chars, 256, L"ugcskin%08X.png",ugcSkinIndex);
-
-			// --- PERSISTENCE: Check if we need to load this skin from disk ---
-			// Iterate through all possible active players (max 4) to find if this skin belongs to one of them.
+			// For custom (UGC) skins we use a player-readable name: custom_skin_{gamertag}.png.
+			// Check every signed-in slot and load the skin from disk if it isn't in memory yet.
 			for (int i = 0; i < 4; ++i)
 			{
-				if (ProfileManager.IsSignedIn(i)) // Check if player is signed in
+				if (!ProfileManager.IsSignedIn(i))
+					continue;
+
+				char* gamertag = ProfileManager.GetGamertag(i);
+				const char* tag = (gamertag && gamertag[0]) ? gamertag : "Player";
+
+				// The in-memory texture name for this player's custom skin.
+				wchar_t texName[128];
+				swprintf(texName, 128, L"custom_skin_%hs.png", tag);
+
+				if (!app.IsFileInMemoryTextures(texName))
 				{
-					wstring username = ProfileManager.GetDisplayName(i);
-					if (username.empty()) username = L"default";
+					// Disk path: CustomSkin/custom_skin_{gamertag}.png
+					wchar_t diskPath[MAX_PATH];
+					swprintf(diskPath, MAX_PATH, L"CustomSkin/custom_skin_%hs.png", tag);
 
-					WCHAR expectedSkinPath[MAX_PATH];
-					swprintf(expectedSkinPath, 256, L"CustomSkin\\custom_skin_%ls.png", username.c_str());
-
-					// If the file is not already in memory textures, load it.
-					// Note: app.IsFileInMemoryTextures check is internal to app.AddMemoryTextureFile normally,
-					// but we check here to avoid redundant file I/O.
-					if (!app.IsFileInMemoryTextures(chars))
+					File skinFile(diskPath);
+					if (skinFile.exists())
 					{
-						std::ifstream file(expectedSkinPath, std::ios::binary | std::ios::ate);
-						if (file.is_open())
+						DWORD size = (DWORD)skinFile.length();
+						if (size > 0 && size <= 2 * 1024 * 1024)
 						{
-							std::streamsize size = file.tellg();
-							if (size > 0 && size <= 2 * 1024 * 1024)
+							PBYTE buffer = new (std::nothrow) BYTE[(size_t)size];
+							if (buffer)
 							{
-								file.seekg(0, std::ios::beg);
-								PBYTE buffer = new (std::nothrow) BYTE[(size_t)size];
-								if (buffer && file.read((char*)buffer, size))
-								{
-									app.AddMemoryTextureFile(chars, buffer, (DWORD)size);
-								}
-								else if (buffer) delete[] buffer;
+								FileInputStream fis(skinFile);
+								byteArray b;
+								b.data   = buffer;
+								b.length = size;
+								if (fis.read(b, 0, size) == size)
+									app.AddMemoryTextureFile(texName, buffer, size);
+								else
+									delete[] buffer;
+								fis.close();
 							}
-							file.close();
 						}
 					}
 				}
+
+				// Return the texture name for the first signed-in player slot —
+				// this matches what LoadExternalSkin registers on behalf of m_iPad.
+				wcscpy_s(chars, 256, texName);
+				break;
 			}
 		}
 	}
