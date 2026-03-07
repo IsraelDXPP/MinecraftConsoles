@@ -51,6 +51,7 @@ target_include_directories(MinecraftClient PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/Minecraft.Client/Windows64/Iggy/include"
   "${CMAKE_CURRENT_SOURCE_DIR}/Minecraft.Client/Xbox/Sentient/Include"
   "${CMAKE_CURRENT_SOURCE_DIR}/Minecraft.World/x64headers"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/"
 )
 target_compile_definitions(MinecraftClient PRIVATE
   $<$<CONFIG:Debug>:_LARGE_WORLDS;_DEBUG_MENUS_ENABLED;_DEBUG;_CRT_NON_CONFORMING_SWPRINTFS;_CRT_SECURE_NO_WARNINGS;_WINDOWS64>
@@ -76,7 +77,6 @@ target_link_libraries(MinecraftClient PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/Minecraft.Client/Windows64/Iggy/lib/iggy_w64.lib"
   "${CMAKE_CURRENT_SOURCE_DIR}/Minecraft.Client/Windows64/Iggy/lib/iggyperfmon_w64.lib"
   "${CMAKE_CURRENT_SOURCE_DIR}/Minecraft.Client/Windows64/Iggy/lib/iggyexpruntime_w64.lib"
-  "${CMAKE_CURRENT_SOURCE_DIR}/Minecraft.Client/Windows64/Miles/lib/mss64.lib"
   $<$<CONFIG:Debug>:
     "${CMAKE_CURRENT_SOURCE_DIR}/Minecraft.Client/Windows64/4JLibs/libs/4J_Input_d.lib"
     "${CMAKE_CURRENT_SOURCE_DIR}/Minecraft.Client/Windows64/4JLibs/libs/4J_Storage_d.lib"
@@ -89,7 +89,7 @@ target_link_libraries(MinecraftClient PRIVATE
   >
 )
 
-if(WIN32)
+if(CMAKE_HOST_WIN32)
   message(STATUS "Starting redist copy...")
   execute_process(
     COMMAND robocopy.exe
@@ -118,7 +118,7 @@ if(WIN32)
             /S /MT /R:0 /W:0 /NP
             /XF "*.h" "*.xml" "*.lang" "*.bat"
   )
-elseif(UNIX)
+elseif(CMAKE_HOST_UNIX)
   message(STATUS "Starting redist copy...")
   execute_process(
     COMMAND rsync -av "${CMAKE_CURRENT_SOURCE_DIR}/x64/Release/" "${CMAKE_CURRENT_BINARY_DIR}/"
